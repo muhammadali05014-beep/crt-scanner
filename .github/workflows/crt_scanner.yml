@@ -2,7 +2,7 @@ name: CRT Scanner
 
 on:
   schedule:
-    - cron: "*/30 * * * *"   # runs every 30 minutes
+    - cron: "*/5 * * * *"   # runs every 30 minutes
   workflow_dispatch:          # lets you manually trigger it from GitHub's UI to test
 
 jobs:
