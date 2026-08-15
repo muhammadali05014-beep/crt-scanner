@@ -24,10 +24,10 @@ TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
 PAIRS = [
-    "EUR/USDT",
-    "GBP/USDT",
+    "EUR/USD",
+    "GBP/USD",
     "USD/JPY",
-    "AUD/USDT",
+    "AUD/USD",
     "USD/CAD",
     "BTC/USDT",
 ]
