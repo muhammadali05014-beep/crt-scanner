@@ -9,19 +9,38 @@ Reads API keys / tokens from environment variables (set as GitHub Secrets),
 not hardcoded in this file.
 """
 
+import sys
 import time
 import json
 import os
 import requests
+from datetime import datetime, timezone
 from dataclasses import dataclass
 from typing import Optional
 
 # ============================================================
+# === TIME GATEKEEPER — Prevents unnecessary API calls ===
+# ============================================================
+def is_within_candle_window(window_minutes: int = 20) -> bool:
+    """
+    Checks if current UTC time is within `window_minutes` 
+    after a 4H or 1D candle close (00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC).
+    """
+    now = datetime.now(timezone.utc)
+    
+    # 4H boundaries occur at hours 0, 4, 8, 12, 16, 20 UTC
+    is_candle_hour = (now.hour % 4 == 0)
+    is_in_window = is_candle_hour and (now.minute < window_minutes)
+    
+    return is_in_window
+
+
+# ============================================================
 # === CONFIG — pulled from environment variables (GitHub Secrets) ===
 # ============================================================
-TWELVE_DATA_API_KEY = os.environ["TWELVE_DATA_API_KEY"]
-TELEGRAM_BOT_TOKEN = os.environ["TELEGRAM_BOT_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 
 PAIRS = [
     "EUR/USD",
@@ -164,4 +183,9 @@ def run_scan():
 
 
 if __name__ == "__main__":
+    if not is_within_candle_window(window_minutes=20):
+        print("[INFO] Outside 20-minute post-candle window. Exiting to save API calls.")
+        sys.exit(0)
+
+    print("[INFO] Inside window! Proceeding with API scan...")
     run_scan()
