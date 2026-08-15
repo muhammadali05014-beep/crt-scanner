@@ -1,0 +1,38 @@
+name: CRT Scanner
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # runs every 30 minutes
+  workflow_dispatch:          # lets you manually trigger it from GitHub's UI to test
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run CRT scanner
+        env:
+          TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python crt_scanner_bot.py
+
+      - name: Commit updated state file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add crt_state.json
+          git diff --staged --quiet || git commit -m "Update CRT scanner state"
+          git push
