@@ -2,17 +2,23 @@ name: CRT Scanner
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # runs every 30 minutes
-  workflow_dispatch:          # lets you manually trigger it from GitHub's UI to test
+    # Run every 5 minutes.
+    # This ensures we don't miss the 20-minute
+    # window after each 4H candle close.
+    - cron: "*/5 * * * *"
+
+  # Allows you to manually run the workflow
+  # from GitHub Actions.
+  workflow_dispatch:
 
 jobs:
   scan:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout repo
+
+      - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -20,19 +26,24 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install requests pandas
+        run: |
+          pip install requests
 
-      - name: Run CRT scanner
+      - name: Run CRT Scanner
         env:
           TWELVE_DATA_API_KEY: ${{ secrets.TWELVE_DATA_API_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python crt_scanner_bot.py
-
-      - name: Commit updated state file
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          python crt_scanner_bot.py
+
+      - name: Save updated state
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add crt_state.json
-          git diff --staged --quiet || git commit -m "Update CRT scanner state"
+
+          git diff --cached --quiet || git commit -m "Update CRT scanner state"
+
           git push
