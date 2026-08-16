@@ -1,15 +1,15 @@
 """
 CRT Scanner — GitHub Actions Version
 =====================================
-Runs automatically through GitHub Actions.
 
 - Checks 4H and 1D candles
-- Only scans during the first 20 minutes after a 4H candle close
-- Forex pairs: Monday-Friday
+- 4H scan only during first 20 minutes after UTC 4H boundary
+- Forex: Monday-Friday
 - BTC/USDT: Monday-Sunday
+- Twelve Data explicitly requested in UTC
+- One-time candle processing using crt_state.json
+- Sends one startup notification per UTC day
 - Sends CRT alerts to Telegram
-- Sends one "BOT IS ACTIVE" message per UTC day
-- Stores state in crt_state.json
 """
 
 import sys
@@ -24,15 +24,70 @@ from typing import Optional
 
 
 # ============================================================
-# === TIME GATEKEEPER ===
+# === CONFIGURATION ==========================================
+# ============================================================
+
+TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
+
+STATE_FILE = "crt_state.json"
+
+TIMEFRAMES = ["4h", "1day"]
+
+FOREX_SYMBOLS = [
+    "GBP/USD",
+    "EUR/USD",
+    "USD/JPY",
+    "AUD/USD",
+    "USD/CAD",
+]
+
+CRYPTO_SYMBOLS = [
+    "BTC/USD",
+]
+
+
+# ============================================================
+# === DATA STRUCTURE =========================================
+# ============================================================
+
+@dataclass
+class Candle:
+    datetime: str
+    open: float
+    high: float
+    low: float
+    close: float
+
+
+# ============================================================
+# === STATE ==================================================
+# ============================================================
+
+def load_state() -> dict:
+    if not os.path.exists(STATE_FILE):
+        return {}
+
+    with open(STATE_FILE, "r") as f:
+        return json.load(f)
+
+
+def save_state(state: dict):
+    with open(STATE_FILE, "w") as f:
+        json.dump(state, f, indent=2)
+
+
+# ============================================================
+# === TIME GATEKEEPER ========================================
 # ============================================================
 
 def is_within_candle_window(window_minutes: int = 20) -> bool:
     """
     Checks if current UTC time is within the first 20 minutes
-    after a 4H candle close.
+    after a 4H candle boundary.
 
-    4H candle closes:
+    4H boundaries:
     00:00 UTC
     04:00 UTC
     08:00 UTC
@@ -43,486 +98,282 @@ def is_within_candle_window(window_minutes: int = 20) -> bool:
 
     now = datetime.now(timezone.utc)
 
-    is_candle_hour = (now.hour % 4 == 0)
-    is_in_window = is_candle_hour and (now.minute < window_minutes)
-
-    return is_in_window
-
-
-# ============================================================
-# === CONFIG ===
-# ============================================================
-
-TWELVE_DATA_API_KEY = os.environ.get("TWELVE_DATA_API_KEY")
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
-
-
-PAIRS = [
-    "EUR/USD",
-    "GBP/USD",
-    "USD/JPY",
-    "AUD/USD",
-    "USD/CAD",
-    "BTC/USDT",
-]
-
-TIMEFRAMES = [
-    "4h",
-    "1day",
-]
-
-MARGIN_RATIO = 0.5
-
-STATE_FILE = "crt_state.json"
-
-
-# ============================================================
-# === CANDLE DATA STRUCTURE ===
-# ============================================================
-
-@dataclass
-class Candle:
-    time: str
-    open: float
-    high: float
-    low: float
-    close: float
-
-
-# ============================================================
-# === CRT SIGNAL LOGIC ===
-# ============================================================
-
-def crt_signal(
-    prev: Candle,
-    curr: Candle,
-    margin_ratio: float = 0.5
-) -> Optional[str]:
-
-    ref_high = prev.high
-    ref_low = prev.low
-
-    threshold = (
-        ref_low
-        + (ref_high - ref_low) * margin_ratio
+    minutes_since_boundary = (
+        (now.hour % 4) * 60
+        + now.minute
     )
 
-    # Both sides swept
-    dual_wick = (
-        curr.high > ref_high
-        and curr.low < ref_low
+    return minutes_since_boundary < window_minutes
+
+
+# ============================================================
+# === TELEGRAM ===============================================
+# ============================================================
+
+def send_telegram_message(text: str):
+    url = (
+        f"https://api.telegram.org/"
+        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     )
 
-    if dual_wick:
-        return None
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": text,
+        "parse_mode": "Markdown",
+    }
 
-    # Bearish CRT
-    if (
-        curr.high > ref_high
-        and curr.close <= ref_high
-        and curr.close > threshold
-    ):
-        return "bearish"
+    response = requests.post(
+        url,
+        data=payload,
+        timeout=10
+    )
 
-    # Bullish CRT
-    if (
-        curr.low < ref_low
-        and curr.close >= ref_low
-        and curr.close < threshold
-    ):
-        return "bullish"
+    print(f"[TELEGRAM] Status: {response.status_code}")
+    print(f"[TELEGRAM] Response: {response.text}")
 
-    return None
+    return response.ok
 
 
 # ============================================================
-# === DATA FETCHING — TWELVE DATA ===
+# === STARTUP NOTIFICATION ===================================
 # ============================================================
 
-def fetch_last_two_candles(
+def send_startup_notification(state: dict):
+    """
+    Sends one startup notification per UTC day.
+    """
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    if state.get("last_startup_notification") == today:
+        print("[INFO] Startup notification already sent today.")
+        return
+
+    text = (
+        "🟢 *CRT Scanner Bot STARTED*\n\n"
+        f"UTC Date: {today}\n"
+        "GitHub Actions has started the scanner successfully."
+    )
+
+    if send_telegram_message(text):
+        state["last_startup_notification"] = today
+        print("[INFO] Startup notification sent successfully.")
+    else:
+        print("[ERROR] Startup notification failed.")
+
+
+# ============================================================
+# === TWELVE DATA ============================================
+# ============================================================
+
+def get_candles(
     symbol: str,
-    interval: str
-) -> Optional[tuple[Candle, Candle]]:
+    interval: str,
+    outputsize: int = 10
+) -> list[Candle]:
 
     url = "https://api.twelvedata.com/time_series"
 
     params = {
         "symbol": symbol,
         "interval": interval,
-        "outputsize": 2,
+        "outputsize": outputsize,
         "apikey": TWELVE_DATA_API_KEY,
-        "order": "ASC",
         "timezone": "UTC",
+        "order": "ASC",
     }
 
-    try:
+    print(
+        f"[API] Requesting {symbol} "
+        f"{interval} candles in UTC..."
+    )
 
-        resp = requests.get(
-            url,
-            params=params,
-            timeout=15
-        )
+    response = requests.get(
+        url,
+        params=params,
+        timeout=20
+    )
 
-        data = resp.json()
+    data = response.json()
 
-        if "values" not in data or len(data["values"]) < 2:
-
-            print(
-                f"[WARN] Not enough data for "
-                f"{symbol} ({interval}): {data}"
-            )
-
-            return None
-
-        candles = [
-            Candle(
-                time=v["datetime"],
-                open=float(v["open"]),
-                high=float(v["high"]),
-                low=float(v["low"]),
-                close=float(v["close"]),
-            )
-            for v in data["values"]
-        ]
-
-        return candles[0], candles[1]
-
-    except Exception as e:
-
+    if "values" not in data:
         print(
-            f"[ERROR] Fetching "
-            f"{symbol} ({interval}): {e}"
+            f"[ERROR] Twelve Data response for "
+            f"{symbol} {interval}: {data}"
+        )
+        return []
+
+    candles = []
+
+    for item in data["values"]:
+        candles.append(
+            Candle(
+                datetime=item["datetime"],
+                open=float(item["open"]),
+                high=float(item["high"]),
+                low=float(item["low"]),
+                close=float(item["close"]),
+            )
         )
 
+    return candles
+
+
+# ============================================================
+# === CRT DETECTION ==========================================
+# ============================================================
+
+def detect_crt(
+    candles: list[Candle]
+) -> Optional[str]:
+
+    if len(candles) < 3:
         return None
 
+    first = candles[-3]
+    second = candles[-2]
+
+    # Bullish CRT
+    if (
+        second.low < first.low
+        and second.close > first.low
+        and second.close < first.high
+    ):
+        return "BULLISH"
+
+    # Bearish CRT
+    if (
+        second.high > first.high
+        and second.close < first.high
+        and second.close > first.low
+    ):
+        return "BEARISH"
+
+    return None
+
 
 # ============================================================
-# === TELEGRAM CRT ALERT ===
+# === SYMBOL FILTER ==========================================
 # ============================================================
 
-def send_telegram_alert(
-    pair: str,
+def get_symbols_for_today() -> list[str]:
+    """
+    Forex only Monday-Friday.
+    BTC/USD every day.
+    """
+
+    weekday = datetime.now(timezone.utc).weekday()
+
+    symbols = list(CRYPTO_SYMBOLS)
+
+    # Monday = 0
+    # Friday = 4
+    if weekday <= 4:
+        symbols.extend(FOREX_SYMBOLS)
+
+    return symbols
+
+
+# ============================================================
+# === SCAN ===================================================
+# ============================================================
+
+def scan_symbol(
+    symbol: str,
     timeframe: str,
-    signal: str,
-    curr: Candle
+    state: dict
 ):
 
-    emoji = "🔴" if signal == "bearish" else "🟢"
-
-    text = (
-        f"{emoji} *{signal.upper()} CRT* — "
-        f"{pair} ({timeframe})\n"
-        f"Candle time: {curr.time}\n"
-        f"Close: {curr.close}\n"
-        f"High: {curr.high}  "
-        f"Low: {curr.low}"
+    candles = get_candles(
+        symbol=symbol,
+        interval=timeframe,
+        outputsize=10
     )
 
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    if not candles:
+        return
+
+    signal = detect_crt(candles)
+
+    if signal is None:
+        print(
+            f"[INFO] No CRT detected: "
+            f"{symbol} {timeframe}"
+        )
+        return
+
+    signal_candle = candles[-2]
+
+    state_key = (
+        f"{symbol}_{timeframe}_"
+        f"{signal_candle.datetime}"
     )
 
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown",
-    }
-
-    try:
-
-        response = requests.post(
-            url,
-            data=payload,
-            timeout=10
-        )
-
+    if state.get("processed", {}).get(state_key):
         print(
-            f"[TELEGRAM ALERT] "
-            f"{response.status_code}"
+            f"[INFO] Already processed: "
+            f"{symbol} {timeframe} "
+            f"{signal_candle.datetime}"
         )
-
-        print(
-            f"[TELEGRAM RESPONSE] "
-            f"{response.text}"
-        )
-
-        if response.ok:
-            print(
-                f"[ALERT SENT] "
-                f"{pair} {timeframe} -> {signal}"
-            )
-        else:
-            print(
-                "[ERROR] Telegram rejected alert."
-            )
-
-    except Exception as e:
-
-        print(
-            f"[ERROR] Sending Telegram alert: {e}"
-        )
-
-
-# ============================================================
-# === DAILY BOT HEARTBEAT ===
-# ============================================================
-
-def send_daily_heartbeat(state: dict):
-
-    today = datetime.now(
-        timezone.utc
-    ).strftime("%Y-%m-%d")
-
-    # Already sent today
-    if state.get("last_heartbeat") == today:
-
-        print(
-            "[INFO] Daily heartbeat already sent today."
-        )
-
         return
 
     text = (
-        "✅ *CRT Scanner Bot is ACTIVE*\n"
-        f"Date: {today}\n"
-        "The scanner is running normally."
+        f"🚨 *CRT SIGNAL*\n\n"
+        f"*Symbol:* {symbol}\n"
+        f"*Timeframe:* {timeframe}\n"
+        f"*Signal:* {signal}\n"
+        f"*Candle:* {signal_candle.datetime} UTC\n"
+        f"*Open:* {signal_candle.open}\n"
+        f"*High:* {signal_candle.high}\n"
+        f"*Low:* {signal_candle.low}\n"
+        f"*Close:* {signal_candle.close}"
     )
 
-    url = (
-        f"https://api.telegram.org/"
-        f"bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    )
+    if send_telegram_message(text):
 
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": text,
-        "parse_mode": "Markdown",
-    }
+        if "processed" not in state:
+            state["processed"] = {}
 
-    try:
-
-        response = requests.post(
-            url,
-            data=payload,
-            timeout=10
-        )
+        state["processed"][state_key] = True
 
         print(
-            f"[HEARTBEAT] "
-            f"{response.status_code}"
-        )
-
-        print(
-            f"[HEARTBEAT RESPONSE] "
-            f"{response.text}"
-        )
-
-        if response.ok:
-
-            state["last_heartbeat"] = today
-
-            print(
-                "✅ Daily heartbeat sent successfully."
-            )
-
-        else:
-
-            print(
-                "❌ Daily heartbeat failed."
-            )
-
-    except Exception as e:
-
-        print(
-            f"[ERROR] Sending daily heartbeat: {e}"
+            f"[ALERT] {signal} CRT sent for "
+            f"{symbol} {timeframe}"
         )
 
 
 # ============================================================
-# === STATE MANAGEMENT ===
+# === MAIN ===================================================
 # ============================================================
 
-def load_state() -> dict:
+def main():
 
-    if os.path.exists(STATE_FILE):
-
-        try:
-
-            with open(
-                STATE_FILE,
-                "r"
-            ) as f:
-
-                return json.load(f)
-
-        except Exception as e:
-
-            print(
-                f"[WARN] Could not read state file: {e}"
-            )
-
-            return {}
-
-    return {}
-
-
-def save_state(state: dict):
-
-    with open(
-        STATE_FILE,
-        "w"
-    ) as f:
-
-        json.dump(
-            state,
-            f,
-            indent=2
-        )
-
-
-# ============================================================
-# === RUN ONE FULL SCAN ===
-# ============================================================
-
-def run_scan():
-
-    state = load_state()
-
-    now = datetime.now(timezone.utc)
-
-    # Weekend:
-    # Scan BTC only.
-    if now.weekday() >= 5:
-
-        pairs_to_scan = [
-            "BTC/USDT"
-        ]
-
-        print(
-            "[INFO] Weekend detected. "
-            "Scanning BTC/USDT only."
-        )
-
-    # Weekday:
-    # Scan Forex + BTC.
-    else:
-
-        pairs_to_scan = PAIRS
-
-        print(
-            "[INFO] Weekday detected. "
-            "Scanning Forex + BTC."
-        )
-
-    for pair in pairs_to_scan:
-
-        for tf in TIMEFRAMES:
-
-            print(
-                f"[SCAN] {pair} — {tf}"
-            )
-
-            result = fetch_last_two_candles(
-                pair,
-                tf
-            )
-
-            if result is not None:
-
-                prev, curr = result
-
-                key = f"{pair}_{tf}"
-
-                last_seen_time = state.get(
-                    key
-                )
-
-                print(
-                    f"[CANDLE] {pair} {tf} "
-                    f"Current: {curr.time}"
-                )
-
-                # Only process a candle once
-                if curr.time != last_seen_time:
-
-                    signal = crt_signal(
-                        prev,
-                        curr,
-                        MARGIN_RATIO
-                    )
-
-                    if signal:
-
-                        print(
-                            f"[CRT FOUND] "
-                            f"{pair} {tf} -> {signal}"
-                        )
-
-                        send_telegram_alert(
-                            pair,
-                            tf,
-                            signal,
-                            curr
-                        )
-
-                    else:
-
-                        print(
-                            f"[NO CRT] "
-                            f"{pair} {tf}"
-                        )
-
-                    state[key] = curr.time
-
-                else:
-
-                    print(
-                        f"[SKIP] "
-                        f"{pair} {tf} already processed."
-                    )
-
-            # Keep Twelve Data requests spaced out
-            time.sleep(8)
-
-    save_state(state)
-
-    print("================================")
-    print("Scan complete.")
-    print("================================")
-
-
-# ============================================================
-# === MAIN ===
-# ============================================================
-
-if __name__ == "__main__":
-
-    print("================================")
+    print("=" * 60)
     print("CRT SCANNER STARTING")
-    print("================================")
+    print("=" * 60)
 
-    # Load state
+    print(
+        f"[INFO] Current UTC time: "
+        f"{datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
     state = load_state()
 
     # --------------------------------------------------------
-    # DAILY HEARTBEAT
+    # STARTUP NOTIFICATION
     # --------------------------------------------------------
 
-    send_daily_heartbeat(state)
+    send_startup_notification(state)
 
-    # Save heartbeat state immediately
+    # Save immediately so the notification state survives
+    # even if the scanner exits afterward.
     save_state(state)
 
     # --------------------------------------------------------
-    # TIME GATEKEEPER
+    # TIME WINDOW
     # --------------------------------------------------------
 
-    if not is_within_candle_window(
-        window_minutes=20
-    ):
+    if not is_within_candle_window(20):
 
         print(
             "[INFO] Outside 20-minute "
@@ -530,22 +381,61 @@ if __name__ == "__main__":
         )
 
         print(
-            "[INFO] No Twelve Data API calls "
-            "will be made."
+            "[INFO] No Twelve Data API calls will be made."
         )
 
-        sys.exit(0)
+        save_state(state)
 
-    # --------------------------------------------------------
-    # RUN SCAN
-    # --------------------------------------------------------
+        return
 
     print(
-        "[INFO] Inside 20-minute window!"
+        "[INFO] Inside 20-minute "
+        "post-candle window."
     )
+
+    # --------------------------------------------------------
+    # SYMBOLS
+    # --------------------------------------------------------
+
+    symbols = get_symbols_for_today()
 
     print(
-        "[INFO] Proceeding with API scan..."
+        f"[INFO] Symbols to scan: {', '.join(symbols)}"
     )
 
-    run_scan()
+    # --------------------------------------------------------
+    # SCAN
+    # --------------------------------------------------------
+
+    for timeframe in TIMEFRAMES:
+
+        print(
+            f"\n[INFO] Scanning timeframe: {timeframe}"
+        )
+
+        for symbol in symbols:
+
+            print(
+                f"[INFO] Scanning {symbol} "
+                f"{timeframe}"
+            )
+
+            scan_symbol(
+                symbol=symbol,
+                timeframe=timeframe,
+                state=state
+            )
+
+            save_state(state)
+
+    print("\n" + "=" * 60)
+    print("CRT SCANNER FINISHED")
+    print("=" * 60)
+
+
+# ============================================================
+# === ENTRY POINT ============================================
+# ============================================================
+
+if __name__ == "__main__":
+    main()
