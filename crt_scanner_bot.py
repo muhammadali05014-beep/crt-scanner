@@ -5,6 +5,8 @@ Runs automatically through GitHub Actions.
 
 - Checks 4H and 1D candles
 - Only scans during the first 20 minutes after a 4H candle close
+- Forex pairs: Monday-Friday
+- BTC/USDT: Monday-Sunday
 - Sends CRT alerts to Telegram
 - Sends one "BOT IS ACTIVE" message per UTC day
 - Stores state in crt_state.json
@@ -151,6 +153,7 @@ def fetch_last_two_candles(
         "outputsize": 2,
         "apikey": TWELVE_DATA_API_KEY,
         "order": "ASC",
+        "timezone": "UTC",
     }
 
     try:
@@ -253,7 +256,7 @@ def send_telegram_alert(
             )
         else:
             print(
-                f"[ERROR] Telegram rejected alert."
+                "[ERROR] Telegram rejected alert."
             )
 
     except Exception as e:
@@ -388,7 +391,33 @@ def run_scan():
 
     state = load_state()
 
-    for pair in PAIRS:
+    now = datetime.now(timezone.utc)
+
+    # Weekend:
+    # Scan BTC only.
+    if now.weekday() >= 5:
+
+        pairs_to_scan = [
+            "BTC/USDT"
+        ]
+
+        print(
+            "[INFO] Weekend detected. "
+            "Scanning BTC/USDT only."
+        )
+
+    # Weekday:
+    # Scan Forex + BTC.
+    else:
+
+        pairs_to_scan = PAIRS
+
+        print(
+            "[INFO] Weekday detected. "
+            "Scanning Forex + BTC."
+        )
+
+    for pair in pairs_to_scan:
 
         for tf in TIMEFRAMES:
 
@@ -481,8 +510,7 @@ if __name__ == "__main__":
     # --------------------------------------------------------
     # DAILY HEARTBEAT
     # --------------------------------------------------------
-    # This does NOT use Twelve Data.
-    # It only sends one Telegram message per UTC day.
+
     send_daily_heartbeat(state)
 
     # Save heartbeat state immediately
