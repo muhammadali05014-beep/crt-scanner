@@ -66,6 +66,10 @@
     "BTC/USD_1day_2026-08-30": true,
     "GBP/USD_1day_2026-08-30": true,
     "GBP/USD_4h_2026-08-31 01:00:00": true,
-    "EUR/USD_4h_2026-08-31 01:00:00": true
+    "EUR/USD_4h_2026-08-31 01:00:00": true,
+    "BTC/USD_4h_2026-08-31 08:00:00": true,
+    "GBP/USD_4h_2026-08-31 05:00:00": true,
+    "EUR/USD_4h_2026-08-31 05:00:00": true,
+    "USD/CAD_4h_2026-08-31 05:00:00": true
   }
 }
