@@ -164,6 +164,10 @@
     "AUD/USD_4h_2026-09-09 13:00:00": true,
     "BTC/USD_4h_2026-09-10 00:00:00": true,
     "BTC/USD_1day_2026-09-09": true,
-    "GBP/USD_1day_2026-09-09": true
+    "GBP/USD_1day_2026-09-09": true,
+    "EUR/USD_4h_2026-09-10 01:00:00": true,
+    "USD/JPY_4h_2026-09-10 01:00:00": true,
+    "AUD/USD_4h_2026-09-10 01:00:00": true,
+    "USD/CAD_4h_2026-09-10 01:00:00": true
   }
 }
