@@ -10,7 +10,7 @@
   "USD/CAD_4h": "2026-08-16 19:00:00",
   "USD/CAD_1day": "2026-08-16",
   "last_heartbeat": "2026-08-16",
-  "last_startup_notification": "2026-09-29",
+  "last_startup_notification": "2026-09-30",
   "processed": {
     "BTC/USD_4h_2026-08-17 04:00:00": true,
     "GBP/USD_4h_2026-08-17 01:00:00": true,
@@ -203,6 +203,12 @@
     "BTC/USD_1day_2026-09-25": true,
     "EUR/USD_4h_2026-09-28 21:00:00": true,
     "USD/JPY_4h_2026-09-28 21:00:00": true,
-    "GBP/USD_1day_2026-09-28": true
+    "GBP/USD_1day_2026-09-28": true,
+    "BTC/USD_4h_2026-09-29 20:00:00": true,
+    "GBP/USD_4h_2026-09-29 17:00:00": true,
+    "EUR/USD_4h_2026-09-29 17:00:00": true,
+    "AUD/USD_4h_2026-09-29 17:00:00": true,
+    "USD/CAD_4h_2026-09-29 17:00:00": true,
+    "GBP/USD_1day_2026-09-29": true
   }
 }
