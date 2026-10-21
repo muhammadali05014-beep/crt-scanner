@@ -216,6 +216,8 @@
     "EUR/USD_1day_2026-10-11": true,
     "USD/JPY_1day_2026-10-11": true,
     "USD/CAD_4h_2026-10-20 16:00:00": true,
-    "BTC/USD_1day_2026-10-19": true
+    "BTC/USD_1day_2026-10-19": true,
+    "EUR/USD_4h_2026-10-21 08:00:00": true,
+    "BTC/USD_1day_2026-10-20": true
   }
 }
