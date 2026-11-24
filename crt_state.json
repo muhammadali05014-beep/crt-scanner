@@ -240,6 +240,9 @@
     "BTC/USD_1day_2026-11-17": true,
     "GBP/USD_1day_2026-11-17": true,
     "BTC/USD_4h_2026-11-21 20:00:00": true,
-    "BTC/USD_1day_2026-11-21": true
+    "BTC/USD_1day_2026-11-21": true,
+    "BTC/USD_4h_2026-11-24 12:00:00": true,
+    "AUD/USD_4h_2026-11-24 12:00:00": true,
+    "BTC/USD_1day_2026-11-23": true
   }
 }
